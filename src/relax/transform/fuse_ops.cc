@@ -36,6 +36,7 @@
 #include <tvm/tir/analysis.h>
 #include <tvm/tir/expr_functor.h>
 #include <tvm/tir/function.h>
+#include <tvm/runtime/logging.h>
 
 #include <optional>
 #include <unordered_map>
@@ -107,6 +108,7 @@ class GraphCreator : public ExprVisitor {
    * \return The created IndexedForwardGraph
    */
   static IndexedForwardGraph Create(IRModule mod, support::Arena* arena) {
+    LOG(INFO) << "Entering GraphCreator::Create";
     GraphCreator creator(mod, arena);
     for (const auto& it : mod->functions) {
       // Only visit Relax functions with neither attr::kPrimitive nor
@@ -139,6 +141,7 @@ class GraphCreator : public ExprVisitor {
       : mod_(std::move(mod)), arena_(arena) {}
 
   void VisitExpr_(const FunctionNode* func) final {
+    LOG(INFO) << "Entering GraphCreator::VisitExpr_";
     for (const Var& param : func->params) {
       IndexedForwardGraph::Node* param_node = CreateNode(param.get());
       // The parameter is passed in from the outside, and thus it's marked as an external reference,
@@ -157,12 +160,14 @@ class GraphCreator : public ExprVisitor {
   }
 
   void VisitBinding_(const MatchCastNode* binding) final {
+    LOG(INFO) << "Entering GraphCreator::VisitBinding_";
     IndexedForwardGraph::Node* node = CreateNode(binding->var.get());
     SetNodePattern(node, OpPatternKind::kOpaque);
     AddToPostDFSOrder(node, binding->var.get());
   }
 
   void VisitBinding_(const VarBindingNode* binding) final {
+    LOG(INFO) << "Entering GraphCreator::VisitBinding_";
     IndexedForwardGraph::Node* node = CreateNode(binding->var.get());
 
     // If the variable is not a dataflow variable, it must be the output variable of this dataflow
@@ -187,6 +192,7 @@ class GraphCreator : public ExprVisitor {
   /********** Non-Leaf Expression Nodes **********/
 
   void VisitCall(const CallNode* call, IndexedForwardGraph::Node* binding_var_node) {
+    LOG(INFO) << "Entering GraphCreator::VisitCall";
     ICHECK_NOTNULL(binding_var_node);
 
     static const Op& call_tir_op_ = Op::Get("relax.call_tir");
@@ -228,6 +234,7 @@ class GraphCreator : public ExprVisitor {
 
   void VisitTupleGetItem(const TupleGetItemNode* tuple_item,
                          IndexedForwardGraph::Node* binding_var_node) {
+    LOG(INFO) << "Entering GraphCreator::VisitTupleGetItem";
     ICHECK_NOTNULL(binding_var_node);
 
     auto pattern = OpPatternKind::kInjective;
@@ -242,6 +249,7 @@ class GraphCreator : public ExprVisitor {
   }
 
   void VisitUnsupportedNode(const Expr& expr, IndexedForwardGraph::Node* binding_var_node) {
+    LOG(INFO) << "Entering GraphCreator::VisitUnsupportedNode";
     ICHECK_NOTNULL(binding_var_node);
     SetNodePattern(binding_var_node, OpPatternKind::kOpaque);
 
@@ -257,6 +265,7 @@ class GraphCreator : public ExprVisitor {
 
   void VisitLeaf(const Expr& leaf_expr, IndexedForwardGraph::Node* binding_var_node,
                  const OpPatternKind& pattern) {
+    LOG(INFO) << "Entering GraphCreator::VisitLeaf";
     ICHECK_NOTNULL(binding_var_node);
 
     // Recursive visit if it's Tuple
@@ -294,6 +303,7 @@ class GraphCreator : public ExprVisitor {
    * \note The node corresponding to each key is supposed to be created for only once
    */
   IndexedForwardGraph::Node* CreateNode(const Object* key) {
+    LOG(INFO) << "Entering GraphCreator::CreateNode";
     ICHECK(graph_.node_map.find(key) == graph_.node_map.end())
         << "The object " << GetRef<ObjectRef>(key) << " appears at multiple definition sites.";
     auto* node = arena_->make<IndexedForwardGraph::Node>();
@@ -308,6 +318,7 @@ class GraphCreator : public ExprVisitor {
    * \note Each node is supposed to be appended to the post-dfs order for only once
    */
   void AddToPostDFSOrder(IndexedForwardGraph::Node* node, const Object* key) {
+    LOG(INFO) << "Entering GraphCreator::AddToPostDFSOrder";
     auto it = graph_.node_map.find(key);
     ICHECK(it != graph_.node_map.end() && it->second == node)
         << "Cannot add node " << GetRef<ObjectRef>(key) << " to the post-DFS order, "
@@ -332,6 +343,7 @@ class GraphCreator : public ExprVisitor {
    */
   void AddEdge(IndexedForwardGraph::Node* start, IndexedForwardGraph::Node* end,
                OpPatternKind pattern) {
+    LOG(INFO) << "Entering GraphCreator::AddEdge";
     auto* link = arena_->make<LinkNode<IndexedForwardGraph::Edge>>();
     link->value.node = end;
     link->value.pattern = pattern;
@@ -351,6 +363,7 @@ class GraphCreator : public ExprVisitor {
    * \param pattern The pattern of the node
    */
   void SetNodePattern(IndexedForwardGraph::Node* node, OpPatternKind pattern) {
+    LOG(INFO) << "Entering GraphCreator::SetNodePattern";
     ICHECK(initialized_nodes_.find(node) == initialized_nodes_.end())
         << "The input node " << GetRef<ObjectRef>(node->ref)
         << " cannot have have its OpPatternKind set more than once.";
@@ -396,6 +409,7 @@ class FunctionCreator : public ExprMutator {
    * // TODO(tvm-team): handle match shape
    */
   void AppendBinding(const Binding& binding) {
+    LOG(INFO) << "Entering FunctionCreator::AppendBinding";
     ICHECK(!function_.defined())
         << "The `function_` is supposed to be uncreated when adding bindings";
 
@@ -473,6 +487,7 @@ class FunctionCreator : public ExprMutator {
    * \note The created function won't be returned immediately. It's stored in the `function_` field.
    */
   void CreateFunction(Map<String, ObjectRef> group_attrs) {
+    LOG(INFO) << "Entering FunctionCreator::CreateFunction";
     // Step 1. Start constructing a new dataflow block.
     builder_->BeginDataflowBlock();
 
@@ -580,6 +595,7 @@ class FunctionCreator : public ExprMutator {
 
  private:
   std::optional<size_t> GetOutputIndex(Var v) {
+    LOG(INFO) << "Entering FunctionCreator::GetOutputIndex";
     auto it = std::find(output_vars_.begin(), output_vars_.end(), v.get());
     if (it != output_vars_.end()) {
       return std::distance(output_vars_.begin(), it);
@@ -593,6 +609,7 @@ class FunctionCreator : public ExprMutator {
    * \param expr The expression to be checked
    */
   void CheckDefAndUpdateParam(const Expr& expr) {
+    LOG(INFO) << "Entering FunctionCreator::CheckDefAndUpdateParam";
     // If the expression has already served as an argument, no need to create another one for it.
     if (std::find(arguments_.begin(), arguments_.end(), expr) != arguments_.end()) {
       return;
@@ -627,6 +644,7 @@ class FunctionCreator : public ExprMutator {
   }
 
   Expr VisitExpr(const Expr& expr) final {
+    LOG(INFO) << "Entering FunctionCreator::VisitExpr";
     // If the expression serves as an argument, return its correspondng parameter.
     auto it = std::find(arguments_.begin(), arguments_.end(), expr);
     if (it != arguments_.end()) {
@@ -716,6 +734,7 @@ class OperatorFusor : public ExprMutator {
    * \return The new IRModule after transformation
    */
   IRModule Transform(const Array<String>& entry_function_names = {}) {
+    LOG(INFO) << "Entering OperatorFusor::Transform";
     Array<GlobalVar> entry_functions;
     if (entry_function_names.empty()) {
       entry_functions = mod_->GetGlobalVars();
@@ -751,12 +770,14 @@ class OperatorFusor : public ExprMutator {
   }
 
   bool IsTupleOutput(Function f) {
+    LOG(INFO) << "Entering OperatorFusor::IsTupleOutput";
     auto sinfo = GetStructInfo(f).as<FuncStructInfoNode>();
     ICHECK(sinfo);
     return sinfo->ret->IsInstance<TupleStructInfoNode>();
   }
 
   bool IsNestedTupleOutput(Function f) {
+    LOG(INFO) << "Entering OperatorFusor::IsNestedTupleOutput";
     if (!IsTupleOutput(f)) return false;
 
     auto tup = GetStructInfo(f).as<FuncStructInfoNode>()->ret.as<TupleStructInfoNode>();
@@ -767,6 +788,7 @@ class OperatorFusor : public ExprMutator {
   }
 
   BindingBlock VisitBindingBlock_(const DataflowBlockNode* block) final {
+    LOG(INFO) << "Entering OperatorFusor::VisitBindingBlock_";
     group2func_.clear();
 
     // Step 1. Collect the bindings for each grouped function.
@@ -879,6 +901,7 @@ class OperatorFusor : public ExprMutator {
    * \note The function update is done by `AppendBinding(...)`
    */
   void CollectFuncBindings(const Array<Binding>& bindings) {
+    LOG(INFO) << "Entering OperatorFusor::CollectFuncBindings";
     for (const Binding& binding : bindings) {
       // If the binding is the only binding in its group, there is no need to create a new function.
       Group* group = GetGroupFromBinding(binding);
@@ -895,6 +918,7 @@ class OperatorFusor : public ExprMutator {
   }
 
   void CollectFuncBoundary(const Array<Binding>& bindings) {
+    LOG(INFO) << "Entering OperatorFusor::CollectFuncBoundary";
     for (const Binding& binding : bindings) {
       // Step 1. Get current binding's group
       Group* cur_group = GetGroupFromBinding(binding);
@@ -942,6 +966,7 @@ class OperatorFusor : public ExprMutator {
    * \return The pointer to the group which the input binding is in
    */
   Group* GetGroupFromBinding(const Binding& binding) {
+    LOG(INFO) << "Entering OperatorFusor::GetGroupFromBinding";
     Var var = binding->var;
     return GetGroupFromVar(var);
   }
@@ -952,6 +977,7 @@ class OperatorFusor : public ExprMutator {
    * \return The pointer to the group which the input var is in
    */
   Group* GetGroupFromVar(const Var& var) {
+    LOG(INFO) << "Entering OperatorFusor::GetGroupFromVar";
     const auto& it_group = obj2group_.find(var.get());
     ICHECK(it_group != obj2group_.end())
         << "Variable " << var << " could not be found in any group";
@@ -966,6 +992,7 @@ class OperatorFusor : public ExprMutator {
    * \return The updated arguments
    */
   Array<Expr> UpdateArgs(const Array<Expr>& args) {
+    LOG(INFO) << "Entering OperatorFusor::UpdateArgs";
     Array<Expr> new_args;
     new_args.reserve(args.size());
     for (const Expr& arg : args) {
@@ -977,6 +1004,7 @@ class OperatorFusor : public ExprMutator {
  private:
   // Topologically sort bindings according to the group dependency relations.
   Array<Binding> TopoSortByGroupDep(const Array<Binding>& bindings) {
+    LOG(INFO) << "Entering OperatorFusor::TopoSortByGroupDep";
     std::unordered_map<Group*, std::vector<Binding>> bindings_per_group;
     // The order to visit groups should respect the original order of bindings as much as possible.
     std::vector<Group*> group_order;
@@ -1034,6 +1062,7 @@ class OperatorFusor : public ExprMutator {
 };
 
 IRModule FuseOps(IRModule mod, int opt_level, size_t max_fuse_depth) {
+  LOG(INFO) << "Entering FuseOps";
   support::Arena arena;
 
   // Step 1. Create the indexed-forward graph according to the input IRModule.
@@ -1051,6 +1080,7 @@ IRModule FuseOps(IRModule mod, int opt_level, size_t max_fuse_depth) {
 IRModule MakeGroupedFunctions(
     IRModule mod, const std::unordered_map<const Object*, GraphPartitioner::Group*>& partition,
     bool lift_constants, const Array<String>& entry_function_names) {
+  LOG(INFO) << "Entering MakeGroupedFunctions";
   return OperatorFusor(mod, partition, lift_constants).Transform(entry_function_names);
 }
 
@@ -1087,18 +1117,21 @@ class PatternBasedPartitioner : ExprVisitor {
         attrs_getter_(attrs_getter) {}
 
   void VisitBindingBlock_(const DataflowBlockNode* block) final {
+    LOG(INFO) << "Entering PatternBasedPartitioner::VisitBindingBlock_";
     current_block_use_def_ = DataflowBlockUseDef(GetRef<DataflowBlock>(block));
     ExprVisitor::VisitBindingBlock_(block);
     current_block_use_def_ = {};
   }
 
   void VisitVarDef(const Var& var) final {
+    LOG(INFO) << "Entering PatternBasedPartitioner::VisitVarDef";
     Group* g = arena_->make<Group>();
     group_map_[var.get()] = g;
     vars_in_group_[g].push_back(var);
   }
 
   void VisitBinding_(const VarBindingNode* binding) final {
+    LOG(INFO) << "Entering PatternBasedPartitioner::VisitBinding_";
     bindings_.Set(binding->var, binding->value);
     value_to_bound_var_.Set(binding->value, binding->var);
     ExprVisitor::VisitBinding_(binding);
@@ -1107,6 +1140,7 @@ class PatternBasedPartitioner : ExprVisitor {
   void VisitExpr_(const ConstantNode* op) final { group_map_[op] = arena_->make<Group>(); }
 
   void VisitBinding_(const VarBindingNode* binding, const CallNode* call) final {
+    LOG(INFO) << "Entering PatternBasedPartitioner::VisitBinding_";
     VisitVarDef(binding->var);
     if (auto matches_opt = ExtractMatchedExpr(pat_, GetRef<Call>(call), bindings_)) {
       const auto& context = CreatePatternCheckContext(call, matches_opt.value());
@@ -1171,6 +1205,7 @@ class PatternBasedPartitioner : ExprVisitor {
 
  private:
   void AddToGroup(Expr e, Group* to) {
+    LOG(INFO) << "Entering PatternBasedPartitioner::AddToGroup";
     if (group_map_[e.get()] != to) {
       --group_map_[e.get()]->num_nodes;
       group_map_[e.get()]->parent = to;
@@ -1180,11 +1215,13 @@ class PatternBasedPartitioner : ExprVisitor {
   }
 
   Group* GetGroupForBoundVar(const Var& bound_var) {
+    LOG(INFO) << "Entering PatternBasedPartitioner::GetGroupForBoundVar";
     ICHECK(group_map_.count(bound_var.get()));
     return group_map_[bound_var.get()]->FindRoot();
   }
 
   Group* GetGroup(const Expr& exp) {
+    LOG(INFO) << "Entering PatternBasedPartitioner::GetGroup";
     if (value_to_bound_var_.count(exp) && group_map_.count(value_to_bound_var_[exp].get())) {
       return group_map_[value_to_bound_var_[exp].get()];
     }
@@ -1193,6 +1230,7 @@ class PatternBasedPartitioner : ExprVisitor {
 
   PatternCheckContext CreatePatternCheckContext(const CallNode* call,
                                                 const Map<DFPattern, Expr>& matched_result) {
+    LOG(INFO) << "Entering PatternBasedPartitioner::CreatePatternCheckContext";
     Map<String, Expr> annotated_expr;
     for (const auto& it : annotation_pat_) {
       if (matched_result.count(it.second)) {
@@ -1214,6 +1252,7 @@ class PatternBasedPartitioner : ExprVisitor {
   // check if a previous matched subgraph is subsumed by the current matched result
   bool GraphSubsumedInMatchedValues(const Array<Expr>& vars_in_graph,
                                     const Map<DFPattern, Expr>& matched_result) {
+    LOG(INFO) << "Entering PatternBasedPartitioner::GraphSubsumedInMatchedValues";
     std::set<Expr> matched_vars;
     for (const auto& [pat, match] : matched_result) {
       if ((pat->IsInstance<CallPatternNode>() || pat->IsInstance<TupleGetItemPatternNode>()))
@@ -1250,6 +1289,7 @@ class CompositeFunctionAnnotator : public ExprMutator {
   using ExprMutator::VisitExpr_;
 
   IRModule Run() {
+    LOG(INFO) << "Entering CompositeFunctionAnnotator::Run";
     auto mod = builder_->GetContextIRModule();
     for (const auto& gv : mod->GetGlobalVars()) {
       auto it = mod->functions.find(gv);
@@ -1276,6 +1316,7 @@ class CompositeFunctionAnnotator : public ExprMutator {
   }
 
   Expr VisitExpr_(const CallNode* call_node) final {
+    LOG(INFO) << "Entering CompositeFunctionAnnotator::VisitExpr_";
     if (auto const* gvar = call_node->op.as<GlobalVarNode>()) {
       if (auto it = gvar_map_.find(gvar); it != gvar_map_.end()) {
         return Call(it->second, call_node->args);
@@ -1298,6 +1339,7 @@ class CompositeFunctionAnnotator : public ExprMutator {
   }
 
   Expr VisitExpr_(const FunctionNode* func_node) final {
+    LOG(INFO) << "Entering CompositeFunctionAnnotator::VisitExpr_";
     Function f_inner = Downcast<Function>(ExprMutator::VisitExpr_(func_node));
 
     if (!func_node->GetAttr<String>(attr::kComposite)) {
@@ -1340,6 +1382,7 @@ class CompositeFunctionAnnotator : public ExprMutator {
 IRModule FuseOpsByPattern(const tvm::Array<transform::FusionPattern>& patterns, IRModule mod,
                           bool bind_constants, bool annotate_codegen,
                           Array<String> entry_function_names) {
+  LOG(INFO) << "Entering FuseOpsByPattern";
   support::Arena arena;
 
   for (const auto& pattern : patterns) {
@@ -1394,6 +1437,7 @@ namespace transform {
 FusionPattern::FusionPattern(String name, DFPattern pattern,
                              Map<String, DFPattern> annotation_patterns, Optional<PackedFunc> check,
                              Optional<PackedFunc> attrs_getter) {
+  LOG(INFO) << "Entering FusionPattern::FusionPattern";
   ObjectPtr<FusionPatternNode> n = make_object<FusionPatternNode>();
   n->name = std::move(name);
   n->pattern = std::move(pattern);
@@ -1426,6 +1470,7 @@ PatternCheckContext::PatternCheckContext(Expr matched_expr, Map<String, Expr> an
 TVM_REGISTER_NODE_TYPE(PatternCheckContextNode);
 
 Pass FuseOps(int fuse_opt_level) {
+  LOG(INFO) << "Entering FuseOps";
   runtime::TypedPackedFunc<IRModule(IRModule, PassContext)> pass_func =  //
       [=](IRModule m, PassContext pc) {
         int opt_level = fuse_opt_level == -1 ? pc->opt_level : fuse_opt_level;
@@ -1442,6 +1487,7 @@ TVM_REGISTER_GLOBAL("relax.transform.FuseOps").set_body_typed(FuseOps);
 
 Pass FuseOpsByPattern(const tvm::Array<FusionPattern>& patterns, bool bind_constants,
                       bool annotate_codegen, const Array<String>& entry_function_names) {
+  LOG(INFO) << "Entering FuseOpsByPattern";
   runtime::TypedPackedFunc<IRModule(IRModule, PassContext)> pass_func =  //
       [=](IRModule m, PassContext pc) {
         return relax::FuseOpsByPattern(patterns, m, bind_constants, annotate_codegen,
